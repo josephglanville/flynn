@@ -70,8 +70,8 @@ func APIHandler(conf *Config) http.Handler {
 		r.Get("/config", getConfig)
 		r.Get("/cert", getCert)
 
+		r.Any("/assets/dashboard-worker.*.js", serveAsset)
 		r.Any("/assets/dashboard.*.js", serveDashboardJs)
-
 		r.Any("/assets.*", serveAsset)
 
 		r.Get("/ping", pingHandler)
