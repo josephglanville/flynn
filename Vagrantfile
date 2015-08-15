@@ -47,6 +47,15 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     override.vm.network "private_network", ip: "192.0.2.100"
   end
 
+  # Disable the default /vagrant shared folder
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+
+  # Use NFS for synced folder, this works on all providers including AWS
+  config.vm.synced_folder ".", "/vagrant-nfs", type: "nfs"
+
+  # Use bindfs to allow chown/chgrp to succeed silently, required for make to work
+  config.bindfs.bind_folder "/vagrant-nfs", "/vagrant", chgrp_ignore: true, chown_ignore: true
+
   # AWS_ACCESS_KEY_ID       - AWS IAM public ID
   # AWS_SECRET_ACCESS_KEY   - AWS IAM secret key
   # AWS_SESSION_TOKEN       - AWS IAM role session token
