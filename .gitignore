@@ -7,3 +7,4 @@ bin
 script/custom-vagrant
 demo/*.log
 util/_toolchain/**
+util/packer/ubuntu-14.04/output-*
