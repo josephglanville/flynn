@@ -45,6 +45,10 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     # RFC 5737 TEST-NET-1 used to avoid DNS rebind protection
     override.vm.network "private_network", ip: "192.0.2.100"
+
+    # Override box settings until VMWare image is published
+    override.vm.box_url = nil
+    override.vm.box_version = nil
   end
 
   # Disable the default /vagrant shared folder
