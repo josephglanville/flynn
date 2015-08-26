@@ -256,11 +256,12 @@ var stackTemplate = template.Must(template.New("stack_template.json").Parse(`
           {{end}}
           {
             "Name": { "Fn::Join": [".", ["*", { "Ref": "ClusterDomain" }, ""]] },
-            "Type": "CNAME",
-            "ResourceRecords": [
-              { "Fn::Join": [".", [{ "Ref": "ClusterDomain" }, ""]] }
-            ],
-            "TTL": "3600"
+            "Type": "A",
+            "AliasTarget": {
+              "HostedZoneId": { "Ref": "DNSZone" },
+              "DNSName": { "Fn::Join": [".", [{ "Ref": "ClusterDomain" }, ""]] },
+			  "EvaluateTargetHealth": true
+            }
           }
         ]
       }
