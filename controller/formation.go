@@ -3,13 +3,11 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/go-sql"
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/pq/hstore"
+	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/jackc/pgx"
 	"github.com/flynn/flynn/Godeps/_workspace/src/golang.org/x/net/context"
 	"github.com/flynn/flynn/controller/schema"
 	ct "github.com/flynn/flynn/controller/types"
@@ -45,14 +43,6 @@ func NewFormationRepo(db *postgres.DB, appRepo *AppRepo, releaseRepo *ReleaseRep
 	}
 }
 
-func procsHstore(m map[string]int) hstore.Hstore {
-	res := hstore.Hstore{Map: make(map[string]sql.NullString, len(m))}
-	for k, v := range m {
-		res.Map[k] = sql.NullString{String: strconv.Itoa(v), Valid: true}
-	}
-	return res
-}
-
 func (r *FormationRepo) validateFormProcs(f *ct.Formation) error {
 	release, err := r.releases.Get(f.ReleaseID)
 	if err != nil {
@@ -79,9 +69,8 @@ func (r *FormationRepo) Add(f *ct.Formation) error {
 	if err != nil {
 		return err
 	}
-	procs := procsHstore(f.Processes)
 	err = tx.QueryRow("INSERT INTO formations (app_id, release_id, processes) VALUES ($1, $2, $3) RETURNING created_at, updated_at",
-		f.AppID, f.ReleaseID, procs).Scan(&f.CreatedAt, &f.UpdatedAt)
+		f.AppID, f.ReleaseID, f.Processes).Scan(&f.CreatedAt, &f.UpdatedAt)
 	if postgres.IsUniquenessError(err, "") {
 		tx.Rollback()
 		tx, err = r.db.Begin()
@@ -89,7 +78,7 @@ func (r *FormationRepo) Add(f *ct.Formation) error {
 			return err
 		}
 		err = tx.QueryRow("UPDATE formations SET processes = $3, updated_at = now(), deleted_at = NULL WHERE app_id = $1 AND release_id = $2 RETURNING created_at, updated_at",
-			f.AppID, f.ReleaseID, procs).Scan(&f.CreatedAt, &f.UpdatedAt)
+			f.AppID, f.ReleaseID, f.Processes).Scan(&f.CreatedAt, &f.UpdatedAt)
 	}
 	if err != nil {
 		tx.Rollback()
@@ -108,20 +97,12 @@ func (r *FormationRepo) Add(f *ct.Formation) error {
 
 func scanFormation(s postgres.Scanner) (*ct.Formation, error) {
 	f := &ct.Formation{}
-	var procs hstore.Hstore
-	err := s.Scan(&f.AppID, &f.ReleaseID, &procs, &f.CreatedAt, &f.UpdatedAt)
+	err := s.Scan(&f.AppID, &f.ReleaseID, &f.Processes, &f.CreatedAt, &f.UpdatedAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			err = ErrNotFound
 		}
 		return nil, err
-	}
-	f.Processes = make(map[string]int, len(procs.Map))
-	for k, v := range procs.Map {
-		n, _ := strconv.Atoi(v.String)
-		if n > 0 {
-			f.Processes[k] = n
-		}
 	}
 	return f, nil
 }
@@ -153,7 +134,7 @@ func (r *FormationRepo) Remove(appID, releaseID string) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec("UPDATE formations SET deleted_at = now(), processes = NULL, updated_at = now() WHERE app_id = $1 AND release_id = $2", appID, releaseID)
+	err = tx.Exec("UPDATE formations SET deleted_at = now(), processes = NULL, updated_at = now() WHERE app_id = $1 AND release_id = $2", appID, releaseID)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -232,7 +213,7 @@ func (r *FormationRepo) startListener() error {
 					r.unsubscribeAll()
 					return
 				}
-				ids := strings.SplitN(n.Extra, ":", 2)
+				ids := strings.SplitN(n.Payload, ":", 2)
 				go r.publish(ids[0], ids[1])
 			case <-r.stopListener:
 				listener.Close()

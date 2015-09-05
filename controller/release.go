@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/go-sql"
+	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/jackc/pgx"
 	"github.com/flynn/flynn/Godeps/_workspace/src/golang.org/x/net/context"
 	"github.com/flynn/flynn/controller/schema"
 	ct "github.com/flynn/flynn/controller/types"
@@ -29,7 +29,7 @@ func scanRelease(s postgres.Scanner) (*ct.Release, error) {
 	var data []byte
 	err := s.Scan(&release.ID, &artifactID, &data, &release.CreatedAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			err = ErrNotFound
 		}
 		return nil, err
@@ -95,7 +95,7 @@ func (r *ReleaseRepo) Get(id string) (interface{}, error) {
 	return scanRelease(row)
 }
 
-func releaseList(rows *sql.Rows) ([]*ct.Release, error) {
+func releaseList(rows *pgx.Rows) ([]*ct.Release, error) {
 	var releases []*ct.Release
 	for rows.Next() {
 		release, err := scanRelease(rows)

@@ -32,7 +32,7 @@ func main() {
 	}
 
 	log.Info("connecting to postgres")
-	db := postgres.Wait("", "")
+	db := postgres.Wait(nil, nil)
 
 	log.Info("creating postgres connection pool")
 	pgxpool, err := pgx.NewConnPool(pgx.ConnPoolConfig{

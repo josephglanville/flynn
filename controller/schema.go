@@ -1,15 +1,13 @@
 package main
 
 import (
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/go-sql"
 	"github.com/flynn/flynn/pkg/postgres"
 )
 
-func migrateDB(db *sql.DB) error {
+func migrateDB(db *postgres.DB) error {
 	m := postgres.NewMigrations()
 	m.Add(1,
 		`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`,
-		`CREATE EXTENSION IF NOT EXISTS "hstore"`,
 
 		`CREATE TABLE artifacts (
     artifact_id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -34,7 +32,7 @@ func migrateDB(db *sql.DB) error {
     app_id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     name text NOT NULL,
     release_id uuid REFERENCES releases (release_id),
-	meta hstore,
+	meta jsonb,
 	strategy deployment_strategy NOT NULL DEFAULT 'all-at-once',
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
@@ -73,7 +71,7 @@ $$ LANGUAGE plpgsql`,
 		`CREATE TABLE formations (
     app_id uuid NOT NULL REFERENCES apps (app_id),
     release_id uuid NOT NULL REFERENCES releases (release_id),
-    processes hstore,
+    processes jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     deleted_at timestamptz,
@@ -104,7 +102,7 @@ $$ LANGUAGE plpgsql`,
     resource_id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     provider_id uuid NOT NULL REFERENCES providers (provider_id),
     external_id text NOT NULL,
-    env hstore,
+    env jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     deleted_at timestamptz,
     UNIQUE (provider_id, external_id)
@@ -126,7 +124,7 @@ $$ LANGUAGE plpgsql`,
     release_id uuid NOT NULL REFERENCES releases (release_id),
     process_type text,
     state job_state NOT NULL,
-    meta hstore,
+    meta jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 )`,
@@ -150,7 +148,7 @@ $$ LANGUAGE plpgsql`,
     old_release_id uuid REFERENCES releases (release_id),
     new_release_id uuid NOT NULL REFERENCES releases (release_id),
     strategy deployment_strategy NOT NULL,
-    processes hstore,
+    processes jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     finished_at timestamptz)`,
 

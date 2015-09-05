@@ -102,11 +102,9 @@ func main() {
 		fs = NewOSFilesystem(*storageDir)
 		storageDesc = *storageDir
 	} else {
-		db, err := postgres.Open("", "")
-		if err != nil {
-			shutdown.Fatal(err)
-		}
-		fs, err = NewPostgresFilesystem(db.DB)
+		db := postgres.Wait(nil, nil)
+		var err error
+		fs, err = NewPostgresFilesystem(db)
 		if err != nil {
 			shutdown.Fatal(err)
 		}

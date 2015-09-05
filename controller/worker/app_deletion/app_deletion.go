@@ -103,19 +103,19 @@ func (c *context) HandleAppDeletion(job *que.Job) (err error) {
 		log.Error("error starting db transaction", "err", err)
 		return err
 	}
-	_, err = tx.Exec("UPDATE apps SET deleted_at = now() WHERE app_id = $1 AND deleted_at IS NULL", app.ID)
+	err = tx.Exec("UPDATE apps SET deleted_at = now() WHERE app_id = $1 AND deleted_at IS NULL", app.ID)
 	if err != nil {
 		log.Error("error executing app deletion query", "err", err)
 		tx.Rollback()
 		return err
 	}
-	_, err = tx.Exec("UPDATE formations SET deleted_at = now(), processes = NULL, updated_at = now() WHERE app_id = $1 AND deleted_at IS NULL", app.ID)
+	err = tx.Exec("UPDATE formations SET deleted_at = now(), processes = NULL, updated_at = now() WHERE app_id = $1 AND deleted_at IS NULL", app.ID)
 	if err != nil {
 		log.Error("error executing formation deletion query", "err", err)
 		tx.Rollback()
 		return err
 	}
-	_, err = tx.Exec("UPDATE app_resources SET deleted_at = now() WHERE app_id = $1 AND deleted_at IS NULL", app.ID)
+	err = tx.Exec("UPDATE app_resources SET deleted_at = now() WHERE app_id = $1 AND deleted_at IS NULL", app.ID)
 	if err != nil {
 		log.Error("error executing resource deletion query", "err", err)
 		tx.Rollback()

@@ -98,11 +98,11 @@ func main() {
 		}
 	}
 
-	db, err := postgres.Open("", "")
+	db, err := postgres.Open(nil, nil)
 	if err != nil {
 		shutdown.Fatal(err)
 	}
-	if err := migrateDB(db.DB); err != nil {
+	if err := migrateDB(db); err != nil {
 		shutdown.Fatal(err)
 	}
 

@@ -223,11 +223,21 @@ func (s *PostgresSuite) testDeploy(t *c.C, d *pgDeploy) {
 	}
 
 	// connect to the db so we can test writes
-	db := postgres.Wait(d.name, fmt.Sprintf("dbname=postgres user=flynn password=%s", release.Env["PGPASSWORD"]))
+	db := postgres.Wait(&postgres.Conf{
+		Service:  d.name,
+		Database: "postgres",
+		User:     "flynn",
+		Password: release.Env["PGPASSWORD"],
+	}, nil)
 	dbname := "deploy-test"
 	t.Assert(db.Exec(fmt.Sprintf(`CREATE DATABASE "%s" WITH OWNER = "flynn"`, dbname)), c.IsNil)
 	db.Close()
-	db, err = postgres.Open(d.name, fmt.Sprintf("dbname=%s user=flynn password=%s", dbname, release.Env["PGPASSWORD"]))
+	db, err = postgres.Open(&postgres.Conf{
+		Service:  d.name,
+		Database: dbname,
+		User:     "flynn",
+		Password: release.Env["PGPASSWORD"],
+	}, nil)
 	t.Assert(err, c.IsNil)
 	defer db.Close()
 	t.Assert(db.Exec(`CREATE TABLE deploy_test ( data text)`), c.IsNil)

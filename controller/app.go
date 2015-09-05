@@ -10,9 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/go-sql"
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/pq/hstore"
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/que-go"
+	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/jackc/pgx"
 	"github.com/flynn/flynn/Godeps/_workspace/src/golang.org/x/net/context"
 	"github.com/flynn/flynn/controller/name"
 	"github.com/flynn/flynn/controller/schema"
@@ -64,8 +63,7 @@ func (r *AppRepo) Add(data interface{}) error {
 	if app.Strategy == "" {
 		app.Strategy = "all-at-once"
 	}
-	meta := metaToHstore(app.Meta)
-	if err := tx.QueryRow("INSERT INTO apps (app_id, name, meta, strategy) VALUES ($1, $2, $3, $4) RETURNING created_at, updated_at", app.ID, app.Name, meta, app.Strategy).Scan(&app.CreatedAt, &app.UpdatedAt); err != nil {
+	if err := tx.QueryRow("INSERT INTO apps (app_id, name, meta, strategy) VALUES ($1, $2, $3, $4) RETURNING created_at, updated_at", app.ID, app.Name, app.Meta, app.Strategy).Scan(&app.CreatedAt, &app.UpdatedAt); err != nil {
 		tx.Rollback()
 		if postgres.IsUniquenessError(err, "apps_name_idx") {
 			return httphelper.ObjectExistsErr(fmt.Sprintf("application %q already exists", app.Name))
@@ -99,20 +97,13 @@ func (r *AppRepo) Add(data interface{}) error {
 
 func scanApp(s postgres.Scanner) (*ct.App, error) {
 	app := &ct.App{}
-	var meta hstore.Hstore
 	var releaseID *string
-	err := s.Scan(&app.ID, &app.Name, &meta, &app.Strategy, &releaseID, &app.CreatedAt, &app.UpdatedAt)
-	if err == sql.ErrNoRows {
+	err := s.Scan(&app.ID, &app.Name, &app.Meta, &app.Strategy, &releaseID, &app.CreatedAt, &app.UpdatedAt)
+	if err == pgx.ErrNoRows {
 		err = ErrNotFound
 	}
 	if releaseID != nil {
 		app.ReleaseID = *releaseID
-	}
-	if len(meta.Map) > 0 {
-		app.Meta = make(map[string]string, len(meta.Map))
-		for k, v := range meta.Map {
-			app.Meta[k] = v.String
-		}
 	}
 	return app, err
 }
@@ -162,29 +153,18 @@ func (r *AppRepo) Update(id string, data map[string]interface{}) (interface{}, e
 				return nil, fmt.Errorf("controller: expected string, got %T", v)
 			}
 			app.Strategy = strategy
-			if _, err := tx.Exec("UPDATE apps SET strategy = $2, updated_at = now() WHERE app_id = $1", app.ID, app.Strategy); err != nil {
+			if err := tx.Exec("UPDATE apps SET strategy = $2, updated_at = now() WHERE app_id = $1", app.ID, app.Strategy); err != nil {
 				tx.Rollback()
 				return nil, err
 			}
 		case "meta":
-			data, ok := v.(map[string]interface{})
+			data, ok := v.(map[string]string)
 			if !ok {
 				tx.Rollback()
-				return nil, fmt.Errorf("controller: expected map[string]interface{}, got %T", v)
+				return nil, fmt.Errorf("controller: expected map[string]string, got %T", v)
 			}
-			var meta hstore.Hstore
-			meta.Map = make(map[string]sql.NullString, len(data))
-			app.Meta = make(map[string]string, len(data))
-			for k, v := range data {
-				s, ok := v.(string)
-				if !ok {
-					tx.Rollback()
-					return nil, fmt.Errorf("controller: expected string, got %T", v)
-				}
-				meta.Map[k] = sql.NullString{String: s, Valid: true}
-				app.Meta[k] = s
-			}
-			if _, err := tx.Exec("UPDATE apps SET meta = $2, updated_at = now() WHERE app_id = $1", app.ID, meta); err != nil {
+			app.Meta = data
+			if err := tx.Exec("UPDATE apps SET meta = $2, updated_at = now() WHERE app_id = $1", app.ID, app.Meta); err != nil {
 				tx.Rollback()
 				return nil, err
 			}
@@ -231,7 +211,7 @@ func (r *AppRepo) SetRelease(app *ct.App, releaseID string) error {
 		return err
 	}
 	app.ReleaseID = releaseID
-	if _, err := tx.Exec("UPDATE apps SET release_id = $2, updated_at = now() WHERE app_id = $1", app.ID, app.ReleaseID); err != nil {
+	if err := tx.Exec("UPDATE apps SET release_id = $2, updated_at = now() WHERE app_id = $1", app.ID, app.ReleaseID); err != nil {
 		tx.Rollback()
 		return err
 	}

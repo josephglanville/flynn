@@ -7,6 +7,7 @@ import (
 
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/jackc/pgx"
 	"github.com/flynn/flynn/Godeps/_workspace/src/golang.org/x/net/context"
+	"github.com/flynn/flynn/pkg/postgres"
 	"github.com/flynn/flynn/router/types"
 )
 
@@ -106,7 +107,7 @@ func (d *pgDataStore) Add(r *router.Route) (err error) {
 		).Scan(&r.ID, &r.CreatedAt, &r.UpdatedAt)
 	}
 	r.Type = d.routeType
-	if e, ok := err.(pgx.PgError); ok && e.Code == UniqueConstraintViolation {
+	if e, ok := err.(pgx.PgError); ok && e.Code == postgres.UniqueViolation {
 		err = ErrConflict
 	}
 	return err

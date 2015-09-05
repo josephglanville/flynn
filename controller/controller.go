@@ -14,9 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/go-sql"
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/que-go"
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/jackc/pgx"
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/julienschmidt/httprouter"
 	"github.com/flynn/flynn/Godeps/_workspace/src/golang.org/x/net/context"
 	"github.com/flynn/flynn/Godeps/_workspace/src/gopkg.in/inconshreveable/log15.v2"
@@ -28,7 +26,6 @@ import (
 	logaggc "github.com/flynn/flynn/logaggregator/client"
 	"github.com/flynn/flynn/pkg/cluster"
 	"github.com/flynn/flynn/pkg/ctxhelper"
-	"github.com/flynn/flynn/pkg/dialer"
 	"github.com/flynn/flynn/pkg/httphelper"
 	"github.com/flynn/flynn/pkg/postgres"
 	"github.com/flynn/flynn/pkg/shutdown"
@@ -60,26 +57,16 @@ func main() {
 		name.SetSeed(s)
 	}
 
-	db := postgres.Wait("", "")
+	db := postgres.Wait(nil, que.PrepareStatements)
 
-	if err := migrateDB(db.DB); err != nil {
+	var err error
+	if err := migrateDB(db); err != nil {
 		shutdown.Fatal(err)
 	}
-
-	pgxcfg, err := pgx.ParseURI(fmt.Sprintf("http://%s:%s@%s/%s", os.Getenv("PGUSER"), os.Getenv("PGPASSWORD"), db.Addr(), os.Getenv("PGDATABASE")))
 	if err != nil {
 		log.Fatal(err)
 	}
-	pgxcfg.Dial = dialer.Retry.Dial
-
-	pgxpool, err := pgx.NewConnPool(pgx.ConnPoolConfig{
-		ConnConfig:   pgxcfg,
-		AfterConnect: que.PrepareStatements,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	shutdown.BeforeExit(func() { pgxpool.Close() })
+	shutdown.BeforeExit(func() { db.Close() })
 
 	lc, err := logaggc.New("")
 	if err != nil {
@@ -111,21 +98,20 @@ func main() {
 	})
 
 	handler := appHandler(handlerConfig{
-		db:      db,
-		cc:      clusterClientWrapper{cluster.NewClient()},
-		lc:      lc,
-		rc:      rc,
-		pgxpool: pgxpool,
-		keys:    strings.Split(os.Getenv("AUTH_KEY"), ","),
+		db:   db,
+		cc:   clusterClientWrapper{cluster.NewClient()},
+		lc:   lc,
+		rc:   rc,
+		keys: strings.Split(os.Getenv("AUTH_KEY"), ","),
 	})
 	shutdown.Fatal(http.ListenAndServe(addr, handler))
 }
 
-func wrapDBExec(dbExec func(string, ...interface{}) error) func(string, ...interface{}) (sql.Result, error) {
-	return func(q string, args ...interface{}) (sql.Result, error) {
-		return nil, dbExec(q, args...)
-	}
-}
+//func wrapDBExec(dbExec func(string, ...interface{}) error) func(string, ...interface{}) (pgx.CommandTag, error) {
+//	return func(q string, args ...interface{}) (pgx.CommandTag, error) {
+//		return nil, dbExec(q, args...)
+//	}
+//}
 
 func streamRouterEvents(rc routerc.Client, db *postgres.DB, doneCh chan struct{}) error {
 	// wait for router to come up
@@ -170,7 +156,7 @@ func streamRouterEvents(rc routerc.Client, db *postgres.DB, doneCh chan struct{}
 			io.WriteString(hash, route.CreatedAt.String())
 			io.WriteString(hash, route.UpdatedAt.String())
 			uniqueID := fmt.Sprintf("%x", hash.Sum(nil))
-			if err := createEvent(wrapDBExec(db.Exec), &ct.Event{
+			if err := createEvent(db.Exec, &ct.Event{
 				AppID:      appID,
 				ObjectID:   route.ID,
 				ObjectType: eventType,
@@ -185,12 +171,11 @@ func streamRouterEvents(rc routerc.Client, db *postgres.DB, doneCh chan struct{}
 }
 
 type handlerConfig struct {
-	db      *postgres.DB
-	cc      clusterClient
-	lc      logaggc.Client
-	rc      routerc.Client
-	pgxpool *pgx.ConnPool
-	keys    []string
+	db   *postgres.DB
+	cc   clusterClient
+	lc   logaggc.Client
+	rc   routerc.Client
+	keys []string
 }
 
 // NOTE: this is temporary until httphelper supports custom errors
@@ -213,7 +198,7 @@ func appHandler(c handlerConfig) http.Handler {
 		shutdown.Fatal(err)
 	}
 
-	q := que.NewClient(c.pgxpool)
+	q := que.NewClient(c.db.ConnPool)
 	providerRepo := NewProviderRepo(c.db)
 	resourceRepo := NewResourceRepo(c.db)
 	appRepo := NewAppRepo(c.db, os.Getenv("DEFAULT_ROUTE_DOMAIN"), c.rc)
@@ -221,7 +206,7 @@ func appHandler(c handlerConfig) http.Handler {
 	releaseRepo := NewReleaseRepo(c.db)
 	jobRepo := NewJobRepo(c.db)
 	formationRepo := NewFormationRepo(c.db, appRepo, releaseRepo, artifactRepo)
-	deploymentRepo := NewDeploymentRepo(c.db, c.pgxpool)
+	deploymentRepo := NewDeploymentRepo(c.db)
 	eventRepo := NewEventRepo(c.db)
 
 	api := controllerAPI{
@@ -400,7 +385,7 @@ func (c *controllerAPI) getRoute(ctx context.Context) (*router.Route, error) {
 	return route, err
 }
 
-func createEvent(dbExec func(string, ...interface{}) (sql.Result, error), e *ct.Event, data interface{}) error {
+func createEvent(dbExec func(string, ...interface{}) error, e *ct.Event, data interface{}) error {
 	encodedData, err := json.Marshal(data)
 	if err != nil {
 		return err
@@ -430,7 +415,7 @@ func createEvent(dbExec func(string, ...interface{}) (sql.Result, error), e *ct.
 		query += fmt.Sprintf("$%d", i+1)
 	}
 	query += ")"
-	_, err = dbExec(query, args...)
+	err = dbExec(query, args...)
 	return err
 }
 

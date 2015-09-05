@@ -9,8 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/go-sql"
-	_ "github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/pq"
+	"github.com/flynn/flynn/pkg/postgres"
 	"github.com/flynn/flynn/pkg/random"
 	"github.com/flynn/flynn/pkg/shutdown"
 	"github.com/flynn/flynn/pkg/testutils/postgres"
@@ -29,7 +28,12 @@ func TestPostgresFilesystem(t *testing.T) {
 	if err := pgtestutils.SetupPostgres("blobstoretest"); err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open("postgres", "")
+	connPool, err := pgx.NewConnPool(pgx.ConnPoolConfig{
+		ConnConfig: pgx.ConnConfig{
+			Database: "postgres",
+		},
+	})
+	db := postgres.New(connPool, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

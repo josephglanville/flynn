@@ -6,14 +6,12 @@ import (
 	"io"
 	"time"
 
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/go-sql"
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/pq"
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/pq/oid"
+	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/jackc/pgx"
 	"github.com/flynn/flynn/pkg/postgres"
 	"github.com/flynn/flynn/pkg/status"
 )
 
-func NewPostgresFilesystem(db *sql.DB) (Filesystem, error) {
+func NewPostgresFilesystem(db *postgres.DB) (Filesystem, error) {
 	m := postgres.NewMigrations()
 	m.Add(1,
 		`CREATE TABLE files (
@@ -38,11 +36,11 @@ $$ LANGUAGE plpgsql;`,
 }
 
 type PostgresFilesystem struct {
-	db *sql.DB
+	db *postgres.DB
 }
 
 func (p *PostgresFilesystem) Status() status.Status {
-	if _, err := p.db.Exec("SELECT 1"); err != nil {
+	if err := p.db.Exec("SELECT 1"); err != nil {
 		return status.Unhealthy
 	}
 	return status.Healthy
@@ -54,7 +52,7 @@ func (p *PostgresFilesystem) Put(name string, r io.Reader, typ string) error {
 		return err
 	}
 
-	var id oid.Oid
+	var id pgx.Oid
 create:
 	err = tx.QueryRow("INSERT INTO files (name, type) VALUES ($1, $2) RETURNING file_id", name, typ).Scan(&id)
 	if postgres.IsUniquenessError(err, "") {
@@ -65,7 +63,7 @@ create:
 		}
 
 		// file exists, delete it first
-		_, err = tx.Exec("DELETE FROM files WHERE name = $1", name)
+		err = tx.Exec("DELETE FROM files WHERE name = $1", name)
 		if err != nil {
 			tx.Rollback()
 			return err
@@ -77,12 +75,12 @@ create:
 		return err
 	}
 
-	lo, err := pq.NewLargeObjects(tx)
+	lo, err := tx.LargeObjects()
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
-	obj, err := lo.Open(id, pq.LargeObjectModeWrite)
+	obj, err := lo.Open(id, pgx.LargeObjectModeWrite)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -96,7 +94,7 @@ create:
 	}
 
 	digest := hex.EncodeToString(h.Sum(nil))
-	_, err = tx.Exec("UPDATE files SET size = $2, digest = $3 WHERE file_id = $1", id, size, digest)
+	err = tx.Exec("UPDATE files SET size = $2, digest = $3 WHERE file_id = $1", id, size, digest)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -106,7 +104,7 @@ create:
 }
 
 func (p *PostgresFilesystem) Delete(name string) error {
-	_, err := p.db.Exec("DELETE FROM files WHERE name = $1", name)
+	err := p.db.Exec("DELETE FROM files WHERE name = $1", name)
 	return err
 }
 
@@ -121,18 +119,18 @@ func (p *PostgresFilesystem) Open(name string) (File, error) {
 		name).Scan(&f.id, &f.size, &f.typ, &f.etag, &f.mtime)
 	if err != nil {
 		tx.Rollback()
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			err = ErrNotFound
 		}
 		return nil, err
 	}
 
-	lo, err := pq.NewLargeObjects(tx)
+	lo, err := tx.LargeObjects()
 	if err != nil {
 		tx.Rollback()
 		return nil, err
 	}
-	f.LargeObject, err = lo.Open(f.id, pq.LargeObjectModeRead)
+	f.LargeObject, err = lo.Open(f.id, pgx.LargeObjectModeRead)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
@@ -143,14 +141,14 @@ func (p *PostgresFilesystem) Open(name string) (File, error) {
 }
 
 type pgFile struct {
-	*pq.LargeObject
-	id    oid.Oid
+	*pgx.LargeObject
+	id    pgx.Oid
 	size  int64
 	typ   string
 	etag  string
 	mtime time.Time
 
-	tx *sql.Tx
+	tx *postgres.DBTx
 }
 
 func (f *pgFile) Size() int64        { return f.size }
